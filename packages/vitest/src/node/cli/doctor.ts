@@ -49,7 +49,7 @@ export interface DoctorCandidate {
   primeRuns?: number
 }
 
-const DOM_ENVIRONMENTS = new Set(['jsdom', 'happy-dom'])
+const NON_VM_CANDIDATE_ENVIRONMENTS = new Set(['node', 'edge-runtime'])
 
 /**
  * Builds the list of configurations worth measuring for this config. The
@@ -68,8 +68,10 @@ export function resolveDoctorCandidates(
 
   const pools = new Set(testProjects.map(project => project.pool))
   const usesVmPool = pools.has('vmThreads') || pools.has('vmForks')
-  const runsDom = testProjects.some(project =>
-    DOM_ENVIRONMENTS.has(project.environment),
+  // Custom environments may wrap a DOM environment. Let the measured runs
+  // check their VM compatibility instead of excluding them by name.
+  const shouldTryVmPools = testProjects.some(project =>
+    !NON_VM_CANDIDATE_ENVIRONMENTS.has(project.environment),
   )
   const isolates = projects.some(
     project => project.isolate
@@ -85,7 +87,7 @@ export function resolveDoctorCandidates(
       preservesIsolation: true,
     })
   }
-  if (runsDom && !pools.has('vmThreads')) {
+  if (shouldTryVmPools && !pools.has('vmThreads')) {
     candidates.push({
       id: 'vmThreads',
       title: `pool: 'vmThreads'`,
@@ -97,7 +99,7 @@ export function resolveDoctorCandidates(
   // vmForks trades vmThreads' worker threads for child processes: each child
   // gets its own heap and GC, which can beat vmThreads on GC-heavy suites, and
   // it is the vm option for suites that cannot run in worker threads
-  if (runsDom && !pools.has('vmForks')) {
+  if (shouldTryVmPools && !pools.has('vmForks')) {
     candidates.push({
       id: 'vmForks',
       title: `pool: 'vmForks'`,

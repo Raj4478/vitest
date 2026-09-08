@@ -1,5 +1,73 @@
 import { expect, test } from 'vitest'
-import { runVitestCli } from '../../test-utils'
+import { runInlineTests, runVitestCli } from '../../test-utils'
+
+test.each([true, false])('doctor measures custom environments with setupVM: %s', async (supportsVm) => {
+  const { root, stderr, testTree } = await runInlineTests({
+    'vitest.config.ts': `
+      import { defineConfig } from 'vitest/config'
+      export default defineConfig({
+        test: {
+          environment: './custom-env.ts',
+          pool: 'threads',
+          isolate: false,
+          fsModuleCache: true,
+          maxWorkers: 1,
+        },
+      })
+    `,
+    'custom-env.ts': `
+      import { builtinEnvironments } from 'vitest/runtime'
+      const happyDom = builtinEnvironments['happy-dom']
+      export default {
+        ...happyDom,
+        name: 'happy-dom-broadcast-channel',
+        setupVM: ${supportsVm
+          ? `async (options) => {
+          const result = await happyDom.setupVM(options)
+          result.getVmContext().BroadcastChannel = BroadcastChannel
+          return result
+        }`
+          : 'undefined'},
+      }
+    `,
+    'dom.test.ts': `
+      import { expect, test } from 'vitest'
+      test('custom DOM environment', () => {
+        expect(document.createElement('div').tagName).toBe('DIV')
+        expect(typeof BroadcastChannel).toBe('function')
+      })
+    `,
+  })
+  expect(stderr).toBe('')
+  expect(testTree()).toMatchInlineSnapshot(`
+    {
+      "dom.test.ts": {
+        "custom DOM environment": "passed",
+      },
+    }
+  `)
+
+  const { vitest, exitCode, waitForClose } = await runVitestCli(
+    { nodeOptions: { cwd: root } },
+    'doctor',
+  )
+  await waitForClose()
+  expect(vitest.stderr).toBe('')
+  expect(exitCode).toBe(0)
+
+  for (const pool of ['vmThreads', 'vmForks']) {
+    expect(vitest.stdout.match(new RegExp(`measuring pool: '${pool}'`, 'g'))).toEqual([`measuring pool: '${pool}'`])
+    if (supportsVm) {
+      expect(vitest.stdout).toMatch(new RegExp(`pool: '${pool}'\\s+\\d`))
+      expect(vitest.stdout).not.toMatch(new RegExp(`pool: '${pool}' failed`))
+    }
+    else {
+      expect(vitest.stdout).toMatch(new RegExp(`pool: '${pool}' failed with:`))
+      expect(vitest.stdout).toMatch(/doesn't support vm environment because it doesn't provide "setupVM" method/)
+      expect(vitest.stdout).not.toMatch(/Recommendation: pool: 'vm/)
+    }
+  }
+}, 120_000)
 
 test('doctor measures alternative configurations and reports a table', async () => {
   const { vitest, exitCode, waitForClose } = await runVitestCli(

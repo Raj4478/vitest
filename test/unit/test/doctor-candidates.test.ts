@@ -28,6 +28,26 @@ describe('resolveDoctorCandidates', () => {
       .toEqual(['threads', 'vmThreads', 'vmForks', 'no-isolate', 'fs-cache'])
   })
 
+  it.each(['./happy-dom-env.ts', '/custom-env.ts', 'custom'])('tries the vm pools for custom environment %s', (environment) => {
+    expect(candidateIds([project({ environment })]))
+      .toEqual(['threads', 'vmThreads', 'vmForks', 'no-isolate', 'fs-cache'])
+  })
+
+  it('does not offer vm pools for edge-runtime', () => {
+    expect(candidateIds([project({ environment: 'edge-runtime' })]))
+      .toEqual(['threads', 'no-isolate', 'fs-cache'])
+  })
+
+  it('does not offer node pool candidates for custom browser environments', () => {
+    expect(candidateIds([project({ browser: true, environment: './custom-env.ts' })]))
+      .toEqual(['no-isolate'])
+  })
+
+  it('does not repeat the vm pool of a custom environment', () => {
+    expect(candidateIds([project({ environment: './custom-env.ts', pool: 'vmThreads', fsModuleCache: true })]))
+      .toEqual(['vmForks', 'threads-no-isolate'])
+  })
+
   it('does not repeat what the config already uses', () => {
     expect(candidateIds([project({ pool: 'threads', isolate: false, fsModuleCache: true })])).toEqual([])
   })
